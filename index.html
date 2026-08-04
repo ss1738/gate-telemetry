@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assured EO gate telemetry</title>
+<style>
+  :root{--ink:#1a2332;--muted:#5a6678;--line:#e2e7ef;--blue:#4269D0;--orange:#EFB118;--red:#C5443C;--green:#2e7d43;--bg:#fafbfd}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);padding:24px 28px;font-size:14px}
+  header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+  h1{font-size:19px}
+  .banner{font-size:12px;color:var(--muted);border:1px solid var(--line);background:#fff;border-radius:6px;padding:7px 12px;margin:10px 0 18px}
+  .banner b{color:var(--ink)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+  .tile{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .tile .lab{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .tile .val{font-size:24px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+  .tile .sub{font-size:11px;color:var(--muted)}
+  .row{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:16px}
+  @media(max-width:900px){.row{grid-template-columns:1fr}}
+  .card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px}
+  .card h2{font-size:13px;margin-bottom:8px;color:var(--muted);font-weight:600}
+  canvas{width:100%;height:190px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .b{display:inline-block;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600;color:#fff}
+  .accept{background:var(--blue)} .refuse{background:var(--red)}
+  .mono{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+  .ctl{display:flex;gap:8px;align-items:center}
+  button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 12px;font-size:12.5px;cursor:pointer}
+  button:hover{background:#f0f4fa}
+  .corr-clean{color:var(--muted)} .corr-noise{color:var(--red);font-weight:600}
+  .corr-blur{color:var(--orange);font-weight:600} .corr-bright{color:var(--orange)}
+  footer{font-size:11.5px;color:var(--muted);margin-top:14px;line-height:1.5}
+  a{color:var(--blue);text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Assured EO gate telemetry</h1>
+  <div class="ctl">
+    <button id="pp">Pause</button>
+    <button data-s="2">1x</button><button data-s="1">2x</button><button data-s="0.4">5x</button>
+    <span class="mono" id="meta"></span>
+  </div>
+</header>
+<div class="banner"><b>Replay of real measured decisions.</b> Every event below is an actual verdict from the assured pipeline: an 8-bit quantized EuroSAT classifier behind a three-check gate (conformal sets, energy score, input statistics), streamed with corruption bursts injected. Hash-chained per decision. This page is a replay, not a live downlink.</div>
+
+<div class="grid">
+  <div class="tile"><div class="lab">Events</div><div class="val" id="t_n">0</div><div class="sub">of <span id="t_total"></span></div></div>
+  <div class="tile"><div class="lab">Accepted</div><div class="val" id="t_acc" style="color:var(--blue)">0%</div><div class="sub" id="t_accn"></div></div>
+  <div class="tile"><div class="lab">Refused</div><div class="val" id="t_ref" style="color:var(--red)">0%</div><div class="sub" id="t_refr"></div></div>
+  <div class="tile"><div class="lab">Accuracy among accepted</div><div class="val" id="t_cov">--</div><div class="sub">the number the gate protects</div></div>
+  <div class="tile"><div class="lab">Accuracy if no gate</div><div class="val" id="t_raw" style="color:var(--muted)">--</div><div class="sub">same stream, ungated</div></div>
+  <div class="tile"><div class="lab">Chain head</div><div class="val mono" id="t_hash" style="font-size:13px">...</div><div class="sub">sha256 decision chain</div></div>
+</div>
+
+<div class="row">
+  <div class="card"><h2>Rolling rates (window 150): accepted-accuracy vs ungated accuracy vs accept rate</h2><canvas id="c1" width="900" height="190"></canvas></div>
+  <div class="card"><h2>Refusals by gate layer</h2><canvas id="c2" width="500" height="190"></canvas></div>
+</div>
+
+<div class="card"><h2>Decision feed</h2>
+<table><thead><tr><th>#</th><th>Input</th><th>Verdict</th><th>Layer</th><th>Prediction</th><th>Truth</th><th>Set</th><th>Conf</th><th>Chain</th></tr></thead>
+<tbody id="feed"></tbody></table></div>
+
+<footer>
+Pipeline and every threshold measured in the open research programme: <a href="https://github.com/ss1738/euroSAT-CNN-landcover">euroSAT-CNN-landcover</a> (12 findings) ·
+checks packaged in <a href="https://github.com/ss1738/qualkit">qualkit</a> · CI enforcement: <a href="https://github.com/ss1738/qualkit-action">qualkit-action</a>.
+Gate layers: conformal (empty prediction set), energy (out-of-envelope score), stats (raw-image statistics outside the calibration envelope, the layer that catches sensor noise).
+</footer>
+
+<script>
+let EV=[],META={},i=0,timer=null,period=400,paused=false;
+const hist={acc:[],raw:[],rate:[]},counts={conformal:0,energy:0,stats:0};
+let nAcc=0,nAccOk=0,nOk=0;
+const $=id=>document.getElementById(id);
+fetch("events.json").then(r=>r.json()).then(d=>{EV=d.events;META=d.meta;
+  $("t_total").textContent=META.n;$("meta").textContent=META.model;
+  start();});
+function start(){timer=setInterval(step,period);}
+function setSpeed(p){period=p*200;clearInterval(timer);if(!paused)start();}
+document.querySelectorAll("button[data-s]").forEach(b=>b.onclick=()=>setSpeed(parseFloat(b.dataset.s)));
+$("pp").onclick=()=>{paused=!paused;$("pp").textContent=paused?"Play":"Pause";clearInterval(timer);if(!paused)start();};
+function step(){
+  if(i>=EV.length){i=0;nAcc=0;nAccOk=0;nOk=0;hist.acc.length=0;hist.raw.length=0;hist.rate.length=0;
+    counts.conformal=0;counts.energy=0;counts.stats=0;$("feed").innerHTML="";}
+  const e=EV[i++];
+  if(e.v){nAcc++;if(e.ok)nAccOk++;}else{counts[e.r]++;}
+  if(e.ok)nOk++;
+  const w=150,lo=Math.max(0,i-w);
+  let a=0,ao=0,o=0;
+  for(let k=lo;k<i;k++){const x=EV[k];if(x.v){a++;if(x.ok)ao++;}if(x.ok)o++;}
+  hist.acc.push(a?ao/a:1);hist.raw.push(o/(i-lo));hist.rate.push(a/(i-lo));
+  if(hist.acc.length>260){hist.acc.shift();hist.raw.shift();hist.rate.shift();}
+  $("t_n").textContent=i;
+  $("t_acc").textContent=(100*nAcc/i).toFixed(1)+"%";$("t_accn").textContent=nAcc+" passed to action";
+  $("t_ref").textContent=(100*(i-nAcc)/i).toFixed(1)+"%";
+  $("t_refr").textContent="stats "+counts.stats+" · conf "+counts.conformal+" · energy "+counts.energy;
+  $("t_cov").textContent=nAcc?(100*nAccOk/nAcc).toFixed(1)+"%":"--";
+  $("t_cov").style.color=nAcc&&nAccOk/nAcc>0.95?"var(--green)":"var(--orange)";
+  $("t_raw").textContent=(100*nOk/i).toFixed(1)+"%";
+  $("t_hash").textContent=e.h;
+  const tr=document.createElement("tr");
+  tr.innerHTML=`<td>${e.k}</td><td class="corr-${e.c}">${e.c}</td>`+
+    `<td><span class="b ${e.v?"accept":"refuse"}">${e.v?"ACCEPT":"REFUSE"}</span></td>`+
+    `<td>${e.v?"":e.r}</td><td>${e.p}</td><td>${e.t}${e.v&&!e.ok?" ⚠":""}</td>`+
+    `<td>${e.ss}</td><td>${e.cf.toFixed(2)}</td><td class="mono">${e.h}</td>`;
+  const f=$("feed");f.prepend(tr);while(f.children.length>12)f.removeChild(f.lastChild);
+  draw1();draw2();
+}
+function draw1(){
+  const c=$("c1"),x=c.getContext("2d"),W=c.width,H=c.height;
+  x.clearRect(0,0,W,H);x.font="11px sans-serif";
+  for(const gy of [0.25,0.5,0.75,1.0]){x.strokeStyle="#eef1f6";x.beginPath();
+    x.moveTo(30,H-14-gy*(H-30));x.lineTo(W,H-14-gy*(H-30));x.stroke();
+    x.fillStyle="#8a93a3";x.fillText((gy*100)+"%",2,H-11-gy*(H-30));}
+  const series=[["acc","#4269D0",2.2],["raw","#9AA0A6",1.4],["rate","#EFB118",1.4]];
+  for(const [k,col,wd] of series){const d=hist[k];if(d.length<2)continue;
+    x.strokeStyle=col;x.lineWidth=wd;x.beginPath();
+    d.forEach((v,j)=>{const px=30+(W-34)*j/259,py=H-14-v*(H-30);j?x.lineTo(px,py):x.moveTo(px,py);});
+    x.stroke();}
+  x.fillStyle="#4269D0";x.fillText("accepted accuracy",36,12);
+  x.fillStyle="#9AA0A6";x.fillText("ungated accuracy",150,12);
+  x.fillStyle="#EFB118";x.fillText("accept rate",260,12);
+}
+function draw2(){
+  const c=$("c2"),x=c.getContext("2d"),W=c.width,H=c.height;
+  x.clearRect(0,0,W,H);x.font="12px sans-serif";
+  const items=[["stats (sensor noise)",counts.stats],["conformal (ambiguous)",counts.conformal],["energy (shifted)",counts.energy]];
+  const mx=Math.max(1,...items.map(a=>a[1]));
+  items.forEach((it,j)=>{const y=24+j*54;
+    x.fillStyle="#5a6678";x.fillText(it[0],4,y-6);
+    x.fillStyle="#C5443C";x.beginPath();
+    x.roundRect(4,y,(W-90)*it[1]/mx,22,4);x.fill();
+    x.fillStyle="#1a2332";x.fillText(it[1],10+(W-90)*it[1]/mx,y+16);});
+}
+</script>
+</body>
+</html>
