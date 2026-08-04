@@ -28,6 +28,8 @@
   .b{display:inline-block;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600;color:#fff}
   .accept{background:var(--blue)} .refuse{background:var(--red)}
   .mono{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+  .thumb{width:48px;height:48px;background-image:url(sprite.jpg);background-size:2400px auto;border-radius:3px;border:1px solid var(--line)}
+  .bigtile{width:128px;height:128px;background-image:url(sprite.jpg);background-size:6400px auto;border-radius:6px;border:1px solid var(--line);margin-top:4px}
   .ctl{display:flex;gap:8px;align-items:center}
   button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 12px;font-size:12.5px;cursor:pointer}
   button:hover{background:#f0f4fa}
@@ -54,6 +56,7 @@
   <div class="tile"><div class="lab">Refused</div><div class="val" id="t_ref" style="color:var(--red)">0%</div><div class="sub" id="t_refr"></div></div>
   <div class="tile"><div class="lab">Accuracy among accepted</div><div class="val" id="t_cov">--</div><div class="sub">the number the gate protects</div></div>
   <div class="tile"><div class="lab">Accuracy if no gate</div><div class="val" id="t_raw" style="color:var(--muted)">--</div><div class="sub">same stream, ungated</div></div>
+  <div class="tile"><div class="lab">Tile under judgment</div><div class="bigtile" id="bigtile"></div><div class="sub" id="bigcap"></div></div>
   <div class="tile"><div class="lab">Chain head</div><div class="val mono" id="t_hash" style="font-size:13px">...</div><div class="sub">sha256 decision chain</div></div>
 </div>
 
@@ -63,13 +66,13 @@
 </div>
 
 <div class="card"><h2>Decision feed</h2>
-<table><thead><tr><th>#</th><th>Input</th><th>Verdict</th><th>Layer</th><th>Prediction</th><th>Truth</th><th>Set</th><th>Conf</th><th>Chain</th></tr></thead>
+<table><thead><tr><th>#</th><th>Tile</th><th>Input</th><th>Verdict</th><th>Layer</th><th>Prediction</th><th>Truth</th><th>Set</th><th>Conf</th><th>Chain</th></tr></thead>
 <tbody id="feed"></tbody></table></div>
 
 <footer>
 Pipeline and every threshold measured in the open research programme: <a href="https://github.com/ss1738/euroSAT-CNN-landcover">euroSAT-CNN-landcover</a> (12 findings) ·
 checks packaged in <a href="https://github.com/ss1738/qualkit">qualkit</a> · CI enforcement: <a href="https://github.com/ss1738/qualkit-action">qualkit-action</a> · artifact spec: <a href="https://github.com/ss1738/qualkit/blob/main/ASSURANCE_CARDS.md">Assurance Cards</a> · qualification framing: <a href="https://github.com/ss1738/euroSAT-CNN-landcover/blob/main/EVIDENCE_PACKAGE.md">evidence package</a>.
-Gate layers: conformal (empty prediction set), energy (out-of-envelope score), stats (raw-image statistics outside the calibration envelope, the layer that catches sensor noise).
+Tiles shown are the actual judged inputs: EuroSAT (Helber et al.), Sentinel-2 / Copernicus data. Gate layers: conformal (empty prediction set), energy (out-of-envelope score), stats (raw-image statistics outside the calibration envelope, the layer that catches sensor noise).
 </footer>
 
 <script>
@@ -104,7 +107,10 @@ function step(){
   $("t_raw").textContent=(100*nOk/i).toFixed(1)+"%";
   $("t_hash").textContent=e.h;
   const tr=document.createElement("tr");
-  tr.innerHTML=`<td>${e.k}</td><td class="corr-${e.c}">${e.c}</td>`+
+  const col=e.k%50,row=Math.floor(e.k/50);
+  $("bigtile").style.backgroundPosition=`-${col*128}px -${row*128}px`;
+  $("bigcap").textContent=e.c+(e.v?" \u2192 accepted":" \u2192 refused ("+e.r+")");
+  tr.innerHTML=`<td>${e.k}</td><td><div class="thumb" style="background-position:-${col*48}px -${row*48}px"></div></td><td class="corr-${e.c}">${e.c}</td>`+
     `<td><span class="b ${e.v?"accept":"refuse"}">${e.v?"ACCEPT":"REFUSE"}</span></td>`+
     `<td>${e.v?"":e.r}</td><td>${e.p}</td><td>${e.t}${e.v&&!e.ok?" ⚠":""}</td>`+
     `<td>${e.ss}</td><td>${e.cf.toFixed(2)}</td><td class="mono">${e.h}</td>`;
